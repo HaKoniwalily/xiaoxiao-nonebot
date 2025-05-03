@@ -7,11 +7,7 @@ from nonebot import on_regex, require, get_bot
 from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, MessageSegment
 from nonebot.params import RegexGroup
 from typing import Optional, Tuple
-
-try:
-    scheduler = require("nonebot_plugin_apscheduler").scheduler
-except Exception:
-    scheduler = None
+from nonebot_plugin_apscheduler import scheduler
 
 config_path = Path("config/config.json")
 config_path.parent.mkdir(parents=True, exist_ok=True)

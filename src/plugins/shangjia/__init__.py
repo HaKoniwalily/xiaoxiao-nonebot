@@ -51,9 +51,9 @@ async def shangjia(bot: Bot, event: GroupMessageEvent):
 
     fangshi_dict = {}
     for line in fangshi_data:
-        name, price_history = line.split('=', 1)
-        price_history = price_history.split('/')
-        fangshi_dict[name] = price_history
+        name, price_date_history = line.split('=', 1)
+        price_list = [price_date.split('_')[0] for price_date in price_date_history.split('/')]
+        fangshi_dict[name] = price_list
 
     if matches:
         for name, quantity in matches:

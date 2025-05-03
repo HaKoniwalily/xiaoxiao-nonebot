@@ -2,6 +2,7 @@ from nonebot.plugin import on_regex
 from nonebot.permission import SUPERUSER
 from nonebot.params import RegexGroup
 from nonebot.matcher import Matcher
+from nonebot_plugin_apscheduler import scheduler
 from nonebot import require, get_bot, on_message
 from nonebot.rule import keyword, Rule
 from nonebot.adapters.onebot.v11 import (
@@ -72,10 +73,6 @@ else:
     with open(config_path, "w", encoding="utf-8-sig") as f:
         json.dump(CONFIG, f, ensure_ascii=False, indent=4)
 
-try:
-    scheduler = require("nonebot_plugin_apscheduler").scheduler
-except Exception:
-    scheduler = None
 
 xx_id = "3889001741"
 refresh_message =MessageSegment.at(xx_id)+" 宗门任务刷新"

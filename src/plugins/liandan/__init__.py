@@ -40,8 +40,12 @@ def load_fangshi_data():
             for line in f.readlines():
                 if '=' in line:
                     material, prices = line.strip().split('=')
-                    price_list = prices.split('/')
-                    fangshi_data[material] = int(price_list[0])  # 取第一个价格
+                    first_price_date = prices.split('/')[0]
+                    try:
+                        price = int(first_price_date.split('_')[0])  # 提取价格部分
+                        fangshi_data[material] = price
+                    except (IndexError, ValueError):
+                        logger.warning(f"解析价格数据失败: {first_price_date}")
     return fangshi_data
 
 # 计算税收

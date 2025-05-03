@@ -17,6 +17,7 @@ from nonebot.typing import overrides
 from typing import Dict, List, Optional, Tuple, Literal, Type, TypeVar
 from pathlib import Path
 import asyncio
+from nonebot_plugin_apscheduler import scheduler
 import aiofiles
 try:
     import ujson as json
@@ -39,10 +40,7 @@ if id_path.exists():
     with open(id_path, "r", encoding="utf-8-sig") as f:
         config: Dict[str, bool] = json.load(f)
 
-try:
-    scheduler = require("nonebot_plugin_apscheduler").scheduler
-except Exception:
-    scheduler = None
+
 
 
 trun_on_xiulian = on_regex(r"^(开启|关闭)修炼$", priority=99, block=False, permission=SUPERUSER)

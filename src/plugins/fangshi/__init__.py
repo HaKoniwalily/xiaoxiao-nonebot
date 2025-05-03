@@ -2,6 +2,7 @@ import re
 from nonebot import on_message
 import matplotlib
 from pathlib import Path
+import datetime
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from io import BytesIO
@@ -12,6 +13,7 @@ from nonebot.log import logger
 from typing import Dict
 import os
 from filelock import FileLock
+
 matplotlib.rcParams['font.sans-serif'] = ['SimHei']  # 使用黑体
 bot_root_parent_dir = os.path.abspath(os.path.join(os.getcwd(), ".."))
 fangshi_path = os.path.join(bot_root_parent_dir, "fangshi.ini")
@@ -41,27 +43,38 @@ def load_from_ini(file_path=fangshi_path):
     try:
         with open(file_path, "r", encoding="utf-8") as file:
             data = [line.strip() for line in file.readlines() if line.strip()]
-        return data
+        result = {}
+        for line in data:
+            name, price_date_history = line.split("=", 1)
+            price_date_pairs = price_date_history.split("/")
+            prices = []
+            dates = []
+            for pair in price_date_pairs:
+                if pair:
+                    price, date_str = pair.split("_")
+                    prices.append(price)
+                    dates.append(date_str)
+            result[name] = (prices, dates)
+        return result
     except FileNotFoundError:
-        return []
+        return {}
 
 # 生成价格图
-def generate_line_chart(item_name: str, prices: list) -> BytesIO:
+def generate_line_chart(item_name: str, prices: list, dates: list) -> BytesIO:
     prices = [int(price) for price in prices][::-1]  # 因为坊市价格最左边是最新的。。。
-    
-    x = range(1, len(prices) + 1)
-    
+    dates = dates[::-1]
+
     plt.figure(figsize=(8, 6))
-    plt.plot(x, prices, marker='o', color='b', linestyle='-', markersize=6)
-    
+    plt.plot(dates, prices, marker='o', color='b', linestyle='-', markersize=6)
+
     for i, price in enumerate(prices):
-        formatted_price = format_price(price) 
-        plt.text(x[i], price, formatted_price, fontsize=10, verticalalignment='bottom', horizontalalignment='center')
-    
+        formatted_price = format_price(price)
+        plt.text(dates[i], price, formatted_price, fontsize=10, verticalalignment='bottom', horizontalalignment='center')
+
     plt.title(f"{item_name} 价格")
-    plt.xlabel("")
+    plt.xlabel("日期")
     plt.ylabel("价格")
-    plt.xticks([])  # 未保存日期，先挖个坑
+    plt.xticks(rotation=45)
     plt.grid(True)
 
     img_buf = BytesIO()
@@ -76,21 +89,18 @@ async def get_item_price(item_name: str, bot: Bot, event: GroupMessageEvent):
     fangshi_data = load_from_ini(fangshi_path)
 
     # 查询物品的价格历史
-    for line in fangshi_data:
-        if "=" in line:
-            name, price_history = line.split("=", 1)
-            if name.strip() == item_name:
-                prices = price_history.split("/")
-                img_buf = generate_line_chart(item_name, prices)
-                await bot.send_group_msg(group_id=event.group_id, message=MessageSegment.image(img_buf))
-                return
+    if item_name in fangshi_data:
+        prices, dates = fangshi_data[item_name]
+        img_buf = generate_line_chart(item_name, prices, dates)
+        await bot.send_group_msg(group_id=event.group_id, message=MessageSegment.image(img_buf))
+        return
 
     await bot.send_group_msg(group_id=event.group_id, message=f"没有找到{item_name}")
 
 
 # 确认消息是坊市信息
-async def is_fangshi(bot: Bot, event: GroupMessageEvent) -> bool:    
-    #logger.warning(event.message)
+async def is_fangshi(bot: Bot, event: GroupMessageEvent) -> bool:
+    # logger.warning(event.message)
     return "CQ:markdown" in str(event.message) and "交易行为" in str(event.message)
 
 rule = Rule(is_fangshi)
@@ -109,8 +119,9 @@ async def handle_item_price(bot: Bot, event: GroupMessageEvent):
             if not name or '=' in name or '/' in name:
                 continue
             converted_price = convert_price(price, unit)
-            data.append((name, converted_price))
-        
+            current_date = datetime.datetime.now().strftime("%m-%d %H:%M")
+            data.append((name, converted_price, current_date))
+
         if data:
             logger.warning(data)
             save_to_ini(data)
@@ -128,38 +139,26 @@ def save_to_ini(data, file_path=fangshi_path):
     """保存坊市数据"""
     with FileLock(lock_file):
         existing_data = load_from_ini(file_path)
-        existing_dict = {}
 
-        for line in existing_data:
-            name, price_history = line.split('=', 1)
-            price_history = price_history.split('/')
-            existing_dict[name] = price_history
-
-        for name, new_price in data:
-            if name in existing_dict:
-                price_history = existing_dict[name]
+        for name, new_price, new_date in data:
+            if name in existing_data:
+                prices, dates = existing_data[name]
                 # 如果新的价格与当前最新价格相同，则不添加
-                if price_history[0] != str(new_price):
-                    price_history.insert(0, str(new_price))
-                    if len(price_history) > 12:  # 设置储存价格数量
-                        price_history.pop()
+                if prices and prices[0] != str(new_price):
+                    prices.insert(0, str(new_price))
+                    dates.insert(0, new_date)
+                    if len(prices) > 12:  # 设置储存价格数量
+                        prices.pop()
+                        dates.pop()
             else:
                 # 如果是新物品，初始化价格历史记录
-                existing_dict[name] = [str(new_price)]
+                existing_data[name] = ([str(new_price)], [new_date])
 
         with open(file_path, "w", encoding="utf-8") as file:
-            for name, price_history in existing_dict.items():
-                file.write(f"{name}={'/'.join(price_history)}\n")
-    print(f"坊市数据已保存")          
-
-def load_from_ini(file_path=fangshi_path):
-    """加载坊市数据"""
-    try:
-        with open(file_path, "r", encoding="utf-8") as file:
-            data = [line.strip() for line in file.readlines() if line.strip()]
-        return data
-    except FileNotFoundError:
-        return []
+            for name, (prices, dates) in existing_data.items():
+                price_date_pairs = [f"{price}_{date}" for price, date in zip(prices, dates)]
+                file.write(f"{name}={'/'.join(price_date_pairs)}\n")
+    print(f"坊市数据已保存")
 
 
 async def at_me(bot: Bot, event: GroupMessageEvent) -> bool:
@@ -177,3 +176,4 @@ async def handle_chaxun(bot: Bot, event: GroupMessageEvent):
     if match:
         item_name = match.group(1)
         await get_item_price(item_name, bot, event)
+    
