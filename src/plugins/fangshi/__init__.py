@@ -45,6 +45,8 @@ def load_from_ini(file_path=fangshi_path):
             data = [line.strip() for line in file.readlines() if line.strip()]
         result = {}
         for line in data:
+            if "=" not in line:
+                continue
             name, price_date_history = line.split("=", 1)
             price_date_pairs = price_date_history.split("/")
             prices = []
