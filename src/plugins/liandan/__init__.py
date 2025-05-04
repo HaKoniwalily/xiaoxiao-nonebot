@@ -193,7 +193,7 @@ async def yaocai(bot: Bot, event: GroupMessageEvent):
                 if recipes:
                     msg += f'\n{potion_name}:\n'
                     for recipe, profit in recipes:
-                        msg += f'{recipe}\n理想收益:{profit / 10000}w\n'
+                        msg += f'配方{recipe}丹炉寒铁铸心炉\n理想收益:{profit / 10000}w\n'
                     msg += "-" * 31 + "\n"
             if msg:
                 await bot.send_group_msg(group_id=group_id, message=MessageSegment.at(target_user_id) + msg)
