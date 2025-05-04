@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 import re
 import os
+from configparser import ConfigParser
 from typing import Dict
 from nonebot.log import logger
 from nonebot import on_regex, on_message
@@ -19,15 +20,19 @@ if id_path.exists():
 allowed_group_ids = config.get("炼丹与行情辅助")
 bot_root_parent_dir = Path(os.path.abspath(os.path.join(os.getcwd(), "..")))
 fangshi_path = bot_root_parent_dir / "fangshi.ini"
-path = Path("config/liandan.json")
+pill_path = bot_root_parent_dir / "pill.ini"
 
-try:
-    with open(path, 'r', encoding='utf-8-sig') as f:
-        data = json.load(f)
-except FileNotFoundError:
-    print("找不到文件")
-except json.JSONDecodeError:
-    print("数据解析错误")
+# 丹方
+CACHED_PILL_RECIPES: Dict[str, list] = {}
+# 加载丹方数据
+def load_pill_recipes() -> Dict[str, list]:
+    """加载丹方"""
+    global CACHED_PILL_RECIPES
+    if not CACHED_PILL_RECIPES and pill_path.exists():
+        config = ConfigParser(allow_no_value=True)
+        config.read(pill_path, encoding="utf-8-sig")
+        CACHED_PILL_RECIPES = {section: list(config.options(section)) for section in config.sections()}
+    return CACHED_PILL_RECIPES
 
 # 炼丹用户信息
 alchemy_users = {}
@@ -98,7 +103,7 @@ async def yaocai(bot: Bot, event: GroupMessageEvent):
             current_nickname = nickname
             break
     if not target_user_id:
-        return  
+        return
 
     pattern = r"名字：([^.\n]+)\s*拥有数量:\s*(\d+)"
     matches = re.findall(pattern, message)
@@ -125,58 +130,62 @@ async def yaocai(bot: Bot, event: GroupMessageEvent):
             print(f"{name}: {count}")
 
         if herb_bag:
-            # 分离丹药和药材数据
-            medicines = {k: v for k, v in data.items() if "el_co" in v}
-            herbs = {k: v for k, v in data.items() if "el_co" not in v}
-            current_herb_bag = herb_bag.copy()
             all_potion_recipes = {}
+            pill_recipes = load_pill_recipes()
+            shared_herb_bag = herb_bag.copy()  # 用于所有丹药匹配的共享背包
 
-            # 遍历丹药计算配方
-            for potion_id, potion_info in medicines.items():
-                potion_name = potion_info['name']
+            # 遍历丹方
+            for potion_name, recipes in pill_recipes.items():
                 all_potion_recipes[potion_name] = []
                 while True:
-                    main_herbs = select_main_herbs(potion_id, data, herbs, current_herb_bag)
-                    if not main_herbs:
-                        break
-                    possible = False
-                    for main_herb in main_herbs:
-                        guiding_herbs = select_guiding_herbs(main_herb, data, herbs, current_herb_bag)
-                        if guiding_herbs:
-                            secondary_herbs = select_secondary_herbs(potion_id, data, herbs, current_herb_bag)
-                            if secondary_herbs:
-                                for guiding_herb in guiding_herbs:
-                                    for secondary_herb in secondary_herbs:
-                                        recipe_herbs = [main_herb, guiding_herb, secondary_herb]
-                                        if can_use_recipe(recipe_herbs, current_herb_bag):
-                                            possible = True
-                                            recipes = calculate_recipes([main_herb], [guiding_herb], [secondary_herb])
-                                            for recipe in recipes:
-                                                # 计算炼丹收益
-                                                herb_cost = 0
-                                                for herb in recipe_herbs:
-                                                    name = ''.join(filter(str.isalpha, herb))
-                                                    num = int(''.join(filter(str.isdigit, herb)))
-                                                    herb_price = fangshi_data.get(name)
-                                                    if herb_price is None:
-                                                        logger.warning(f"未找到药材 {name} 的价格将其价格视为 0")
-                                                        herb_price = 0
-                                                    herb_tax = calculate_tax(herb_price)
-                                                    herb_cost += herb_price - herb_tax
+                    found_recipe = False
+                    for recipe in recipes:
+                        # 解析丹方中的药材和数量
+                        recipe_herbs = re.findall(r'(主药|药引|辅药)([\u4e00-\u9fa5]+)(\d+)', recipe)
+                        herb_usage = {}
+                        can_use = True
+                        for position, herb_name, herb_num in recipe_herbs:
+                            herb_num = int(herb_num)
+                            if herb_name not in shared_herb_bag or shared_herb_bag[herb_name] < herb_num:
+                                can_use = False
+                                break
+                            if herb_name not in herb_usage:
+                                herb_usage[herb_name] = herb_num
+                            else:
+                                herb_usage[herb_name] += herb_num
+                            if herb_usage[herb_name] > shared_herb_bag[herb_name]:
+                                can_use = False
+                                break
+                        if can_use:
+                            found_recipe = True
+                            # 计算炼丹收益
+                            herb_cost = 0
+                            for position, herb_name, herb_num in recipe_herbs:
+                                herb_num = int(herb_num)
+                                herb_price = fangshi_data.get(herb_name)
+                                if herb_price is None:
+                                    logger.warning(f"未找到药材 {herb_name} 的价格将其价格视为 0")
+                                    herb_price = 0
+                                herb_tax = calculate_tax(herb_price)
+                                herb_cost += (herb_price - herb_tax) * herb_num
 
-                                                danyao_price = fangshi_data.get(potion_name)
-                                                if danyao_price is None:
-                                                    logger.warning(f"未找到丹药 {potion_name} 的价格将其价格视为 0")
-                                                    danyao_price = 0
-                                                danyao_tax = calculate_tax(danyao_price)
-                                                profit = (danyao_price - danyao_tax) * 6 - herb_cost
+                            danyao_price = fangshi_data.get(potion_name)
+                            if danyao_price is None:
+                                logger.warning(f"未找到丹药 {potion_name} 的价格将其价格视为 0")
+                                danyao_price = 0
+                            danyao_tax = calculate_tax(danyao_price)
+                            profit = (danyao_price - danyao_tax) * 6 - herb_cost
 
-                                                all_potion_recipes[potion_name].append((recipe, profit))
+                            all_potion_recipes[potion_name].append((recipe, profit))
 
-                                                # 更新背包
-                                                update_herb_bag([main_herb], [guiding_herb], [secondary_herb], current_herb_bag)
-
-                    if not possible:
+                            # 更新共享背包
+                            for position, herb_name, herb_num in recipe_herbs:
+                                herb_num = int(herb_num)
+                                if herb_name in shared_herb_bag and shared_herb_bag[herb_name] >= herb_num:
+                                    shared_herb_bag[herb_name] -= herb_num
+                                    if shared_herb_bag[herb_name] == 0:
+                                        del shared_herb_bag[herb_name]
+                    if not found_recipe:
                         break
 
             msg = ""
@@ -194,98 +203,4 @@ async def yaocai(bot: Bot, event: GroupMessageEvent):
         # 清除用户：最后一页处理完毕后删除记录
         user_medicine_info.pop(current_nickname, None)
         alchemy_users.pop((group_id, current_nickname), None)
-
-# 选择主药、辅药、药引等
-def select_main_herbs(potion_id, data, herbs, herb_bag):
-    lx = []
-    el_co = data[potion_id]['el_co']
-    ssd = list(el_co.items())
-    for herb_id, herb_info in herbs.items():
-        if int(ssd[0][0]) == herb_info['主药']['ty']:
-            n2 = herb_info['主药']['po']
-            n1 = n2 / int(ssd[0][1])
-            if n1 <= 1.5:
-                num = int(ssd[0][1]) // n2
-                if int(ssd[0][1]) % n2 != 0:
-                    num += 1
-                if num <= 20 and herb_info['name'] in herb_bag and herb_bag[herb_info['name']] >= num:
-                    lx.append(f"{herb_info['name']}{num}")
-    return lx
-
-def select_secondary_herbs(potion_id, data, herbs, herb_bag):
-    lx = []
-    el_co = data[potion_id]['el_co']
-    ssd = list(el_co.items())
-    for herb_id, herb_info in herbs.items():
-        if int(ssd[1][0]) == herb_info['辅药']['ty']:
-            n2 = herb_info['辅药']['po']
-            n1 = n2 / int(ssd[1][1])
-            if n1 <= 1.5:
-                num = int(ssd[1][1]) // n2
-                if int(ssd[1][1]) % n2 != 0:
-                    num += 1
-                if num <= 20 and herb_info['name'] in herb_bag and herb_bag[herb_info['name']] >= num:
-                    lx.append(f"{herb_info['name']}{num}")
-    return lx
-
-def select_guiding_herbs(main_herb, data, herbs, herb_bag):
-    lk = [s for s in main_herb if s.isdigit()]
-    lx = []
-    main_herb_name = main_herb[:-len(''.join(lk))]
-    for herb_id, herb_info in herbs.items():
-        if herb_info['name'] == main_herb_name:
-            ss = herb_info['主药']['hh']
-            ping = ss['ty'] * ss['po'] * int(''.join(lk))
-            for sub_herb_id, sub_herb_info in herbs.items():
-                ss1 = sub_herb_info["药引"]['hh']
-                ping0 = ss1['ty'] * ss1['po']
-                if ping != 0 and ping0 != 0 and ping * ping0 < 0 and abs(ping) % abs(ping0) == 0:
-                    num = abs(ping) // abs(ping0)
-                    if 1 <= num <= 20 and sub_herb_info['name'] in herb_bag and herb_bag[sub_herb_info['name']] >= num:
-                        lx.append(f"{sub_herb_info['name']}{num}")
-                elif ping == 0 and ping0 == 0:
-                    if sub_herb_info['name'] in herb_bag and herb_bag[sub_herb_info['name']] >= 1:
-                        lx.append(f"{sub_herb_info['name']}1")
-    return lx
-
-def calculate_recipes(main_herbs, guiding_herbs, secondary_herbs):
-    result = []
-    for a0 in main_herbs:
-        for b0 in guiding_herbs:
-            for c0 in secondary_herbs:
-                price1 = f"配方主药{a0}药引{b0}"
-                price2 = f"辅药{c0}丹炉寒铁铸心炉"
-                priceText = f"{price1}{price2}"
-                result.append(priceText)
-    return result
-
-def update_herb_bag(main_herbs, guiding_herbs, secondary_herbs, herb_bag):
-    for herb in main_herbs:
-        name = ''.join(filter(str.isalpha, herb))
-        num = int(''.join(filter(str.isdigit, herb)))
-        herb_bag[name] -= num
-        if herb_bag[name] == 0:
-            del herb_bag[name]
-    for herb in guiding_herbs:
-        name = ''.join(filter(str.isalpha, herb))
-        num = int(''.join(filter(str.isdigit, herb)))
-        herb_bag[name] -= num
-        if herb_bag[name] == 0:
-            del herb_bag[name]
-    for herb in secondary_herbs:
-        name = ''.join(filter(str.isalpha, herb))
-        num = int(''.join(filter(str.isdigit, herb)))
-        herb_bag[name] -= num
-        if herb_bag[name] == 0:
-            del herb_bag[name]
-
-def can_use_recipe(recipe_herbs, herb_bag):
-    temp_bag = herb_bag.copy()
-    for herb in recipe_herbs:
-        name = ''.join(filter(str.isalpha, herb))
-        num = int(''.join(filter(str.isdigit, herb)))
-        if name not in temp_bag or temp_bag[name] < num:
-            return False
-        temp_bag[name] -= num
-    return True
     
