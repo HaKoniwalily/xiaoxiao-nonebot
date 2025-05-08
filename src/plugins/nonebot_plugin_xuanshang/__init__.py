@@ -130,7 +130,7 @@ async def contains_at_me(bot: Bot, event: GroupMessageEvent) -> bool:
 
 xuanshang_rule = Rule(is_xuanshang_enabled) & Rule(contains_at_me)
 
-accept_xuanshang = on_regex(r".*没有查到你的悬赏令|悬赏令结算.*?增加修为.*", block=True, rule=xuanshang_rule)
+accept_xuanshang = on_regex(r".*没有可以接取的悬赏令|悬赏令结算.*?增加修为.*", block=True, rule=xuanshang_rule)
 
 
 @accept_xuanshang.handle()
