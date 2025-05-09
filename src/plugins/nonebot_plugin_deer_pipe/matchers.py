@@ -9,6 +9,11 @@ from .database import (
 from .image import generate_calendar
 
 from datetime import datetime
+from nonebot import on_regex, logger
+from nonebot.adapters import Event
+from nonebot.matcher import Matcher
+from nonebot.params import RegexGroup
+from nonebot.permission import SUPERUSER
 from nonebot_plugin_alconna import (
     Alconna,
     AlconnaMatcher,
@@ -18,7 +23,21 @@ from nonebot_plugin_alconna import (
 )
 from nonebot_plugin_alconna.uniseg import At, UniMessage
 from nonebot_plugin_userinfo import EventUserInfo, UserInfo
+from typing import Tuple
 
+sign_in_enabled = False
+
+switch_handler = on_regex(r'^(开启|关闭)鹿$', block=True, permission=SUPERUSER)
+@switch_handler.handle()
+async def _(matcher: Matcher, event: Event, regex_group: Tuple[str, ...] = RegexGroup()) -> None:
+    global sign_in_enabled
+    action = regex_group[0]
+    if action == "开启":
+        sign_in_enabled = True
+        await UniMessage.text("🦌启动").finish(reply_to=True)
+    elif action == "关闭":
+        sign_in_enabled = False
+        await UniMessage.text("🦌关闭").finish(reply_to=True)
 
 # Matchers
 deer: AlconnaMatcher = on_alconna(Alconna("🦌", Args["target?", At]), aliases={"鹿"})
@@ -35,6 +54,8 @@ deer_help: AlconnaMatcher = on_alconna(Alconna("🦌帮助"), aliases={"鹿帮�
 # Handlers
 @deer.handle()
 async def _(target: Match[At], user_info: UserInfo = EventUserInfo()) -> None:
+    if not sign_in_enabled:
+        return
     now: datetime = datetime.now()
 
     if target.available:
@@ -66,6 +87,8 @@ async def _(target: Match[At], user_info: UserInfo = EventUserInfo()) -> None:
 
 @deer_past.handle()
 async def _(day: Match[int], user_info: UserInfo = EventUserInfo()) -> None:
+    if not sign_in_enabled:
+        return
     now: datetime = datetime.now()
     user_id = user_info.user_id
     avatar: bytes | None = (
@@ -93,6 +116,9 @@ async def _(day: Match[int], user_info: UserInfo = EventUserInfo()) -> None:
 
 @deer_calendar.handle()
 async def _(target: Match[At], user_info: UserInfo = EventUserInfo()) -> None:
+    # 检查签到功能是否启用
+    if not sign_in_enabled:
+        return
     now: datetime = datetime.now()
 
     if target.available:
@@ -120,8 +146,14 @@ async def _(target: Match[At], user_info: UserInfo = EventUserInfo()) -> None:
 
 @deer_help.handle()
 async def _() -> None:
+    # 检查签到功能是否启用
+    if not sign_in_enabled:
+        return
+    status_text = "启用" if sign_in_enabled else "禁用"
+
     await (
         UniMessage.text(f"== 🦌管插件 v{PLUGIN_VERSION} 帮助 ==\n")
+        .text(f"[签到状态] 当前签到功能已{status_text}\n\n")
         .text("[🦌] 🦌管1次\n")
         .text("[🦌 @xxx] 帮xxx🦌管1次\n")
         .text("[补🦌 x] 补🦌本月x日\n")

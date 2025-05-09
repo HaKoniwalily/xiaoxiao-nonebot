@@ -11,7 +11,6 @@ from nonebot.adapters.onebot.v11 import Bot, Event, GroupMessageEvent, MessageSe
 
 # 存储签到信息
 SIGN_IN_FILE = "sign_in_data.json"
-OWNER_ID = 2396276021
 
 # 功能开启标志
 reply_enabled = False
@@ -41,7 +40,7 @@ def clean_expired_reply_time():
     last_reply_time = {user_id: timestamp for user_id, timestamp in last_reply_time.items()
                        if current_time - timestamp < timedelta(minutes=1)}
 
-switch_handler = on_regex(r'^(开启|关闭)签到$', block=True, permission=SUPERUSER)
+switch_handler = on_regex(r'^(开启|关闭)$', block=True, permission=SUPERUSER)
 
 @switch_handler.handle()
 async def handle_switch(bot: Bot, event: GroupMessageEvent, groups=RegexGroup()):
