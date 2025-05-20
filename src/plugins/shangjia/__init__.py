@@ -88,9 +88,8 @@ async def shangjia(bot: Bot, event: GroupMessageEvent):
     
     if shangjia_list:
         for name, price, quantity in shangjia_list:
-            for _ in range(quantity):
-                await bot.send_group_msg(group_id=event.group_id, message=MessageSegment.at(xx_id) + f" 确认坊市上架{name} {price}")
-                await asyncio.sleep(5)  # 可以根据需要调整间隔
+            await bot.send_group_msg(group_id=event.group_id, message=MessageSegment.at(xx_id) + f" 确认坊市上架{name} {price} {quantity}")
+            await asyncio.sleep(5)  # 可以根据需要调整间隔
     flag = False
 
 def load_from_ini(file_path=fangshi_path):
