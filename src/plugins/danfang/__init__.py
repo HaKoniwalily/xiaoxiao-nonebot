@@ -26,6 +26,18 @@ fangshi_path = bot_root_parent_dir / "fangshi.ini"
 # 启用炼丹辅助的群号
 allowed_group_ids = CONFIG.get("炼丹与行情辅助")
 
+# 丹方
+CACHED_PILL_RECIPES: Dict[str, list] = {}
+# 加载丹方数据
+def load_pill_recipes() -> Dict[str, list]:
+    """加载丹方"""
+    global CACHED_PILL_RECIPES
+    if not CACHED_PILL_RECIPES and pill_path.exists():
+        config = ConfigParser(allow_no_value=True)
+        config.read(pill_path, encoding="utf-8-sig")
+        CACHED_PILL_RECIPES = {section: list(config.options(section)) for section in config.sections()}
+    return CACHED_PILL_RECIPES
+
 # 加载炼金数据
 def load_lianjin_data() -> Dict[str, int]:
     """加载炼金价格数据"""
@@ -38,20 +50,6 @@ def save_lianjin_data(data: Dict[str, int]):
     """保存炼金价格数据"""
     with open(config_path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=4)
-
-# 加载丹方数据
-def load_pill_recipes() -> Dict[str, list]:
-    """加载丹方"""
-    config = ConfigParser(allow_no_value=True)
-    if pill_path.exists():
-        config.read(pill_path, encoding="utf-8-sig")
-        recipes = {}
-        for section in config.sections():
-            recipes[section] = list(config.options(section))
-        return recipes
-    else:
-        logger.warning(f"{pill_path}丹方不存在")
-        return {}
 
 # 加载坊市价格数据
 def load_fangshi_data():
@@ -184,10 +182,13 @@ query = on_message(rule=query_rule, block=False)
 async def handle_lianjin(bot: Bot, event: GroupMessageEvent, matcher: Matcher):
     """处理查丹方请求"""
     message = str(event.message)
-    matched = re.search(r"^查丹方\s+(\S+)\s+(\d+)$", message)
+    matched = re.search(r"^查丹方\s*(\S+?)\s*(\d+)$", message)
     if matched:
         pill_name = matched.group(1).strip()
         pill_count = int(matched.group(2))
+        user_id = str(event.user_id)
+        if pill_count > 7:
+            await query.finish(MessageSegment.at(user_id) + f" 炼丹老祖天赋凛然震惊修仙界，远古天赋可怕至极")
         lianjin_data = load_lianjin_data()
         fangshi_data = load_fangshi_data()
         page_data = load_page_data()  # 加载页数数据
@@ -219,17 +220,25 @@ async def handle_lianjin(bot: Bot, event: GroupMessageEvent, matcher: Matcher):
         )
 
         forward_messages = []
-        user_id = "3889001741"
-        nickname = "蛤？"
+        # 获取发送查丹方指令的用户 ID 和昵称
+        user_id = str(event.user_id)
+        nickname = event.sender.nickname
 
         # 添加主信息
         forward_messages.append({
-            "type": "node",
+             "type": "node",
             "data": {
-                "name": nickname,
-                "uin": user_id,
-                "content": main_info
-            }
+                "user_id": user_id,
+                "nickname": nickname,
+                "content": [
+                    {
+                        "type": "text",
+                        "data": {
+                            "text": main_info
+                        }
+                    }
+            ]
+        }
         })
 
         # 处理每个配方
@@ -260,20 +269,15 @@ async def handle_lianjin(bot: Bot, event: GroupMessageEvent, matcher: Matcher):
             forward_messages.append({
                 "type": "node",
                 "data": {
-                    "name": nickname,
-                    "uin": user_id,
+                    "user_id": user_id,
+                    "nickname": nickname, 
+                    "id": "",
                     "content": recipe_info
                 }
             })
 
         # 发送转发消息
         await bot.send_group_forward_msg(group_id=event.group_id, messages=forward_messages)
-        await query.finish()
-    
-    
-    
-       
-
 
 # 保存丹方功能
 async def liandan(bot: Bot, event: GroupMessageEvent) -> bool:
@@ -338,3 +342,4 @@ async def handle_lianjin(bot: Bot, event: Event, matcher: Matcher, args: Tuple[O
             await matcher.send(f"成功删除 {lianjin_content}")
         else:
             await matcher.send(f"没有找到 {lianjin_content}")
+    
