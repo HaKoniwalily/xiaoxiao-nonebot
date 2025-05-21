@@ -143,25 +143,32 @@ def save_to_ini(data, file_path=fangshi_path):
         existing_data = load_from_ini(file_path)
 
         for name, new_price, new_date in data:
+            new_price_str = str(new_price)
             if name in existing_data:
                 prices, dates = existing_data[name]
-                # 如果新的价格与当前最新价格相同，则不添加
-                if prices and prices[0] != str(new_price):
-                    prices.insert(0, str(new_price))
-                    dates.insert(0, new_date)
-                    if len(prices) > 12:  # 设置储存价格数量
-                        prices.pop()
-                        dates.pop()
+                if prices:
+                    if prices[0] == new_price_str:
+                        dates[0] = new_date
+                    else:
+                        prices.insert(0, new_price_str)
+                        dates.insert(0, new_date)
+
+                        if len(prices) > 12:
+                            prices.pop()
+                            dates.pop()
+                else:
+                    # 无价格记录则添加
+                    prices.append(new_price_str)
+                    dates.append(new_date)
             else:
-                # 如果是新物品，初始化价格历史记录
-                existing_data[name] = ([str(new_price)], [new_date])
+                # 新物品，初始化价格历史记录
+                existing_data[name] = ([new_price_str], [new_date])
 
         with open(file_path, "w", encoding="utf-8") as file:
             for name, (prices, dates) in existing_data.items():
                 price_date_pairs = [f"{price}_{date}" for price, date in zip(prices, dates)]
                 file.write(f"{name}={'/'.join(price_date_pairs)}\n")
     print(f"坊市数据已保存")
-
 
 async def at_me(bot: Bot, event: GroupMessageEvent) -> bool:
     self_id = str((await bot.get_login_info())["user_id"])
